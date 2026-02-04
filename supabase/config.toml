@@ -1,0 +1,16 @@
+project_id = "dvbgytmkysaztbdqosup"
+
+[functions.paystack]
+verify_jwt = false
+
+[functions.event-planner-ai]
+verify_jwt = false
+
+[functions.create-notification]
+verify_jwt = false
+
+[functions.create-team-member]
+verify_jwt = false
+
+[functions.manage-team-member]
+verify_jwt = false
