@@ -6,18 +6,20 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
-  Send, 
-  Image as ImageIcon, 
-  Paperclip, 
-  Mic, 
-  Loader2, 
+import {
+  Send,
+  Image as ImageIcon,
+  Paperclip,
+  Mic,
+  Loader2,
   Users,
   Play,
   Pause,
   AlertCircle,
-  ShieldAlert
+  ShieldAlert,
+  Pen
 } from 'lucide-react';
+import { ElectronicSignature } from './ElectronicSignature';
 import { useChatRoom } from '@/hooks/useChatRoom';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
@@ -42,17 +44,19 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
   const { user } = useAuth();
   const { toast } = useToast();
   const { room, messages, isLoading, isSending, sendMessage, uploadFile } = useChatRoom(roomId);
-  
-  // Get only provider participants (exclude organizer/client)
-  const providers = participants.filter(p => p.role === 'provider');
-  
-  const [selectedProviderId, setSelectedProviderId] = useState<string>(providers[0]?.id || '');
+
+  // Get providers and organizers (exclude current user)
+  const interlocutors = participants.filter(p => p.role === 'provider' || p.role === 'organizer');
+
+  const [selectedInterlocutorId, setSelectedInterlocutorId] = useState<string>(interlocutors[0]?.id || '');
   const [input, setInput] = useState('');
   const [inputError, setInputError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [playingVoice, setPlayingVoice] = useState<string | null>(null);
-  
+  const [isSigningOpen, setIsSigningOpen] = useState(false);
+  const [isSigning, setIsSigning] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -64,8 +68,8 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
   // Show messages between current user and selected provider only
   const filteredMessages = messages.filter(msg => {
     const isFromMe = msg.sender_id === user?.id;
-    const isFromSelectedProvider = msg.sender_id === selectedProviderId;
-    return isFromMe || isFromSelectedProvider;
+    const isFromSelectedInterlocutor = msg.sender_id === selectedInterlocutorId;
+    return isFromMe || isFromSelectedInterlocutor;
   });
 
   useEffect(() => {
@@ -74,12 +78,12 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
     }
   }, [filteredMessages]);
 
-  // Set first provider as default when participants load
+  // Set first interlocutor as default when participants load
   useEffect(() => {
-    if (providers.length > 0 && !selectedProviderId) {
-      setSelectedProviderId(providers[0].id);
+    if (interlocutors.length > 0 && !selectedInterlocutorId) {
+      setSelectedInterlocutorId(interlocutors[0].id);
     }
-  }, [providers, selectedProviderId]);
+  }, [interlocutors, selectedInterlocutorId]);
 
   const handleInputChange = (value: string) => {
     setInput(value);
@@ -141,7 +145,7 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
-      
+
       recordingIntervalRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
@@ -178,8 +182,8 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
   };
 
   const getProviderMessageCount = (providerId: string) => {
-    return messages.filter(msg => 
-      msg.sender_id === providerId || 
+    return messages.filter(msg =>
+      msg.sender_id === providerId ||
       (msg.sender_id === user?.id && messages.some(m => m.sender_id === providerId))
     ).length;
   };
@@ -192,19 +196,60 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
     );
   }
 
-  if (providers.length === 0) {
+  const handleSign = async (signatureDataUrl: string) => {
+    try {
+      setIsSigning(true);
+
+      // Convert data URL to Blob
+      const res = await fetch(signatureDataUrl);
+      const blob = await res.blob();
+      const file = new File([blob], `signature-${Date.now()}.png`, { type: 'image/png' });
+
+      // Upload signature image
+      const url = await uploadFile(file);
+
+      if (url) {
+        // Send signature message
+        await sendMessage(
+          'Accord signé électroniquement',
+          'image',
+          url,
+          'Signature',
+          file.size
+        );
+
+        setIsSigningOpen(false);
+        toast({
+          title: 'Signature envoyée',
+          description: 'Votre accord a été signé avec succès',
+          className: 'bg-green-600 text-white',
+        });
+      }
+    } catch (error) {
+      console.error('Error sending signature:', error);
+      toast({
+        title: 'Erreur',
+        description: "Impossible d'envoyer la signature",
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSigning(false);
+    }
+  };
+
+  if (interlocutors.length === 0) {
     return (
       <Card className="h-full">
         <CardContent className="flex flex-col items-center justify-center h-full py-16">
           <Users className="h-16 w-16 text-muted-foreground/50 mb-4" />
-          <p className="text-lg font-medium text-muted-foreground">Aucun prestataire</p>
-          <p className="text-sm text-muted-foreground/70">Ajoutez des prestataires pour démarrer la conversation</p>
+          <p className="text-lg font-medium text-muted-foreground">Aucun interlocuteur</p>
+          <p className="text-sm text-muted-foreground/70">Attendez qu'un organisateur ou prestataire rejoigne la conversation</p>
         </CardContent>
       </Card>
     );
   }
 
-  const selectedProvider = providers.find(p => p.id === selectedProviderId);
+  const selectedInterlocutor = interlocutors.find(p => p.id === selectedInterlocutorId);
 
   return (
     <Card className="flex flex-col h-full">
@@ -213,10 +258,10 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
           <CardTitle className="text-lg">{room?.name || 'Discussion'}</CardTitle>
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">{providers.length} prestataire(s)</span>
+            <span className="text-sm text-muted-foreground">{interlocutors.length} participant(s)</span>
           </div>
         </div>
-        
+
         {/* Security Warning */}
         <Alert variant="destructive" className="mt-3 py-2">
           <ShieldAlert className="h-4 w-4" />
@@ -227,45 +272,45 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
       </CardHeader>
 
       <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
-        {/* Provider Tabs */}
-        <Tabs value={selectedProviderId} onValueChange={setSelectedProviderId} className="flex flex-col h-full">
+        {/* Interlocutor Tabs */}
+        <Tabs value={selectedInterlocutorId} onValueChange={setSelectedInterlocutorId} className="flex flex-col h-full">
           <div className="border-b px-4 pt-2">
             <TabsList className="w-full h-auto flex-wrap justify-start gap-1 bg-transparent p-0">
-              {providers.map((provider) => (
+              {interlocutors.map((interlocutor) => (
                 <TabsTrigger
-                  key={provider.id}
-                  value={provider.id}
+                  key={interlocutor.id}
+                  value={interlocutor.id}
                   className="flex items-center gap-2 px-3 py-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-lg"
                 >
                   <Avatar className="h-6 w-6">
-                    <AvatarImage src={provider.avatar_url || undefined} />
+                    <AvatarImage src={interlocutor.avatar_url || undefined} />
                     <AvatarFallback className="text-xs">
-                      {provider.full_name?.[0]?.toUpperCase() || '?'}
+                      {interlocutor.full_name?.[0]?.toUpperCase() || '?'}
                     </AvatarFallback>
                   </Avatar>
                   <span className="text-sm truncate max-w-[100px]">
-                    {provider.full_name || 'Prestataire'}
+                    {interlocutor.full_name || 'Interlocuteur'}
                   </span>
                 </TabsTrigger>
               ))}
             </TabsList>
           </div>
 
-          <TabsContent value={selectedProviderId} className="flex-1 flex flex-col m-0 overflow-hidden">
+          <TabsContent value={selectedInterlocutorId} className="flex-1 flex flex-col m-0 overflow-hidden">
             {/* Messages Area */}
             <ScrollArea className="flex-1 px-4" ref={scrollRef}>
               <div className="space-y-4 py-4">
                 {filteredMessages.length === 0 && (
                   <div className="text-center py-8">
                     <Avatar className="h-16 w-16 mx-auto mb-4">
-                      <AvatarImage src={selectedProvider?.avatar_url || undefined} />
+                      <AvatarImage src={selectedInterlocutor?.avatar_url || undefined} />
                       <AvatarFallback className="text-xl">
-                        {selectedProvider?.full_name?.[0]?.toUpperCase() || '?'}
+                        {selectedInterlocutor?.full_name?.[0]?.toUpperCase() || '?'}
                       </AvatarFallback>
                     </Avatar>
-                    <p className="font-medium">{selectedProvider?.full_name || 'Prestataire'}</p>
+                    <p className="font-medium">{selectedInterlocutor?.full_name || 'Interlocuteur'}</p>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Démarrez la conversation avec ce prestataire
+                      Démarrez la conversation avec cet interlocuteur
                     </p>
                   </div>
                 )}
@@ -295,7 +340,7 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
                         {!isMe && (
                           <p className="text-xs text-muted-foreground mb-1">{senderName}</p>
                         )}
-                        
+
                         <div
                           className={cn(
                             'rounded-lg px-4 py-2',
@@ -307,18 +352,18 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
                           )}
 
                           {msg.message_type === 'image' && msg.file_url && (
-                            <img 
-                              src={msg.file_url} 
-                              alt="Image" 
+                            <img
+                              src={msg.file_url}
+                              alt="Image"
                               className="max-w-full rounded cursor-pointer"
                               onClick={() => window.open(msg.file_url!, '_blank')}
                             />
                           )}
 
                           {msg.message_type === 'file' && msg.file_url && (
-                            <a 
-                              href={msg.file_url} 
-                              target="_blank" 
+                            <a
+                              href={msg.file_url}
+                              target="_blank"
                               rel="noopener noreferrer"
                               className="flex items-center gap-2 underline"
                             >
@@ -397,6 +442,17 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
 
                 <Button
                   type="button"
+                  variant="outline"
+                  size="icon"
+                  className="bg-primary/5 hover:bg-primary/10 border-primary/20"
+                  onClick={() => setIsSigningOpen(true)}
+                  title="Signer l'accord"
+                >
+                  <Pen className="h-4 w-4 text-primary" />
+                </Button>
+
+                <Button
+                  type="button"
                   variant={isRecording ? 'destructive' : 'outline'}
                   size="icon"
                   onClick={isRecording ? stopRecording : startRecording}
@@ -412,7 +468,7 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
                   <Input
                     value={input}
                     onChange={(e) => handleInputChange(e.target.value)}
-                    placeholder={`Message à ${selectedProvider?.full_name || 'ce prestataire'}...`}
+                    placeholder={`Message à ${selectedInterlocutor?.full_name || 'cet interlocuteur'}...`}
                     disabled={isSending || isRecording}
                     className={cn("flex-1", inputError && "border-destructive")}
                   />
@@ -432,6 +488,12 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
           </TabsContent>
         </Tabs>
       </CardContent>
+      <ElectronicSignature
+        isOpen={isSigningOpen}
+        onClose={() => setIsSigningOpen(false)}
+        onSign={handleSign}
+        isSigning={isSigning}
+      />
     </Card>
   );
 };

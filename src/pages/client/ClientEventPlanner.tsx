@@ -8,14 +8,16 @@ import { AccessibleEventPlanner } from '@/components/event-planner/AccessibleEve
 import { EditableInvoice } from '@/components/event-planner/EditableInvoice';
 import { GlobalPaymentDialog } from '@/components/payment/GlobalPaymentDialog';
 import { ProviderTabbedChat } from '@/components/chat';
+import { PreConversationScreen } from '@/components/chat/PreConversationScreen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { 
-  Loader2, 
-  ArrowLeft, 
-  MessageSquare, 
+import { assignOrganizer } from '@/utils/organizerAssignment';
+import {
+  Loader2,
+  ArrowLeft,
+  MessageSquare,
   Users,
   Calendar,
   Wallet,
@@ -28,6 +30,7 @@ import {
   PartyPopper,
   Receipt,
   CreditCard,
+  CheckCircle,
 } from 'lucide-react';
 
 interface EventFormData {
@@ -108,21 +111,24 @@ const ClientEventPlanner = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
-  
+
   // Initialiser à 'invoice' si on vient du bot, sinon 'form' - évite le flash du formulaire
-  const [step, setStep] = useState<'form' | 'invoice' | 'chat' | 'room'>(
+  const [step, setStep] = useState<'form' | 'invoice' | 'chat' | 'room' | 'preChat'>(
     location.state?.fromBot ? 'invoice' : 'form'
   );
   const [eventData, setEventData] = useState<EventFormData | null>(null);
   const [eventPlanningId, setEventPlanningId] = useState<string | null>(null);
   const [chatRoomId, setChatRoomId] = useState<string | null>(null);
+  const [organizerId, setOrganizerId] = useState<string | null>(null);
+  const [organizerName, setOrganizerName] = useState<string>('Assistant Yafoy');
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [isCreatingReservation, setIsCreatingReservation] = useState(false);
   const [participants, setParticipants] = useState<any[]>([]);
   const [invoiceProducts, setInvoiceProducts] = useState<RecommendedProduct[]>([]);
   const [loadingInvoice, setLoadingInvoice] = useState(false);
   const [rentalDays, setRentalDays] = useState(1);
-  
+
   // Payment state
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [orderSummaries, setOrderSummaries] = useState<OrderSummary[]>([]);
@@ -140,9 +146,9 @@ const ClientEventPlanner = () => {
           rentalDays: number;
           servicesNeeded: string[];
         };
-        
+
         setLoadingInvoice(true);
-        
+
         try {
           // Créer les données d'événement par défaut
           const eventFormData: EventFormData = {
@@ -156,12 +162,12 @@ const ClientEventPlanner = () => {
             servicesNeeded: botData.servicesNeeded || [],
             additionalNotes: 'Réservation via assistant IA',
           };
-          
+
           setEventData(eventFormData);
-          
+
           // Récupérer les détails complets des produits depuis la base de données
           const productIds = botData.selectedProductIds;
-          
+
           const { data: products } = await supabase
             .from('products')
             .select(`
@@ -176,7 +182,7 @@ const ClientEventPlanner = () => {
               categories:category_id(name)
             `)
             .in('id', productIds);
-          
+
           if (products && products.length > 0) {
             // Récupérer les noms des prestataires
             const providerIds = [...new Set(products.map(p => p.provider_id))];
@@ -184,12 +190,12 @@ const ClientEventPlanner = () => {
               .from('profiles')
               .select('user_id, full_name')
               .in('user_id', providerIds);
-            
+
             const providerNameMap: Record<string, string> = {};
             (profiles || []).forEach(profile => {
               providerNameMap[profile.user_id] = profile.full_name || 'Prestataire';
             });
-            
+
             // Convertir en RecommendedProduct
             const invoiceData: RecommendedProduct[] = products.map(p => ({
               id: p.id,
@@ -205,7 +211,7 @@ const ClientEventPlanner = () => {
               quantity: 1,
               rental_days: botData.rentalDays || 1,
             }));
-            
+
             // Sauvegarder la demande d'événement
             const { data: eventPlanning, error } = await supabase
               .from('event_planning_requests')
@@ -224,11 +230,11 @@ const ClientEventPlanner = () => {
               })
               .select()
               .single();
-            
+
             if (!error && eventPlanning) {
               setEventPlanningId(eventPlanning.id);
             }
-            
+
             setInvoiceProducts(invoiceData);
             setStep('invoice');
           }
@@ -246,7 +252,7 @@ const ClientEventPlanner = () => {
         }
       }
     };
-    
+
     handleBotData();
   }, [location.state, user]);
 
@@ -348,7 +354,7 @@ const ClientEventPlanner = () => {
 
       // Get unique provider IDs to fetch their profiles
       const providerIds = [...new Set(matchedProducts.map(p => p.provider_id))];
-      
+
       // Fetch provider profiles separately
       const { data: profiles } = await supabase
         .from('profiles')
@@ -372,7 +378,7 @@ const ClientEventPlanner = () => {
       // Select the best (verified first, then cheapest) product per category
       let selectedProducts: RecommendedProduct[] = [];
       let runningTotal = 0;
-      
+
       for (const category of Object.keys(productsByCategory)) {
         // Sort by verified first, then by price
         const categoryProducts = productsByCategory[category].sort((a, b) => {
@@ -444,7 +450,7 @@ const ClientEventPlanner = () => {
 
       setEventPlanningId(eventPlanning.id);
       setEventData(data);
-      
+
       // Generate invoice directly after form submission
       await generateInvoice(data);
       setStep('invoice');
@@ -467,13 +473,13 @@ const ClientEventPlanner = () => {
   };
 
   const handleUpdateQuantity = (productId: string, quantity: number) => {
-    setInvoiceProducts(prev => prev.map(p => 
+    setInvoiceProducts(prev => prev.map(p =>
       p.id === productId ? { ...p, quantity: Math.max(1, quantity) } : p
     ));
   };
 
   const handleUpdateRentalDays = (productId: string, days: number) => {
-    setInvoiceProducts(prev => prev.map(p => 
+    setInvoiceProducts(prev => prev.map(p =>
       p.id === productId ? { ...p, rental_days: Math.max(1, days) } : p
     ));
   };
@@ -485,7 +491,7 @@ const ClientEventPlanner = () => {
     try {
       // Generate a unique group ID for this set of orders
       const newGroupId = crypto.randomUUID();
-      
+
       // Group products by provider
       const productsByProvider = invoiceProducts.reduce((acc, product) => {
         if (!acc[product.provider_id]) {
@@ -503,7 +509,7 @@ const ClientEventPlanner = () => {
       // Create an order for each provider with the shared group_id
       for (const [providerId, { products, providerName }] of Object.entries(productsByProvider)) {
         const subtotal = products.reduce((sum, p) => sum + (p.price_per_day * p.rental_days * p.quantity), 0);
-        
+
         const { data: order, error: orderError } = await supabase
           .from('orders')
           .insert({
@@ -582,13 +588,171 @@ const ClientEventPlanner = () => {
     }
   };
 
+  const handleReservation = async () => {
+    if (!user || !eventPlanningId || invoiceProducts.length === 0) return;
+
+    setIsCreatingReservation(true);
+    try {
+      // 1. Assigner un organisateur au client (optionnel)
+      const organizerId = await assignOrganizer(user.id);
+      console.log('Organisateur assigné:', organizerId || 'aucun');
+
+      // 2. Générer un unique group ID
+      const newGroupId = crypto.randomUUID();
+
+      // 3. Grouper les produits par prestataire
+      const productsByProvider = invoiceProducts.reduce((acc, product) => {
+        if (!acc[product.provider_id]) {
+          acc[product.provider_id] = {
+            products: [],
+            providerName: product.provider_name || 'Prestataire',
+          };
+        }
+        acc[product.provider_id].products.push(product);
+        return acc;
+      }, {} as Record<string, { products: RecommendedProduct[]; providerName: string }>);
+
+      // 4. Créer les commandes
+      for (const [providerId, { products }] of Object.entries(productsByProvider)) {
+        const subtotal = products.reduce((sum, p) => sum + (p.price_per_day * p.rental_days * p.quantity), 0);
+
+        const { data: order, error: orderError } = await supabase
+          .from('orders')
+          .insert({
+            client_id: user.id,
+            provider_id: providerId,
+            status: 'pending',
+            total_amount: subtotal,
+            deposit_paid: 0,
+            event_date: eventData?.eventDate || null,
+            event_location: eventData?.eventLocation || null,
+            notes: `Réservation - ${EVENT_TYPE_LABELS[eventData?.eventType || 'autre']}${eventData?.eventName ? ` - ${eventData.eventName}` : ''}`,
+            group_id: newGroupId,
+          })
+          .select()
+          .single();
+
+        if (orderError) throw orderError;
+
+        for (const product of products) {
+          const { error: itemError } = await supabase
+            .from('order_items')
+            .insert({
+              order_id: order.id,
+              product_id: product.id,
+              quantity: product.quantity,
+              price_per_day: product.price_per_day,
+              rental_days: product.rental_days,
+              subtotal: product.price_per_day * product.rental_days * product.quantity,
+            });
+
+          if (itemError) throw itemError;
+        }
+      }
+
+      // 5. Mettre à jour le statut
+      await supabase
+        .from('event_planning_requests')
+        .update({
+          ai_recommendations: invoiceProducts.map(p => p.id),
+          status: 'pending',
+        })
+        .eq('id', eventPlanningId);
+
+      // 6. Créer le chat avec l'organisateur
+      const roomName = eventData?.eventName || `Événement ${EVENT_TYPE_LABELS[eventData?.eventType || 'autre']}`;
+      const { data: room, error: roomError } = await supabase
+        .from('chat_rooms')
+        .insert({
+          event_planning_id: eventPlanningId,
+          name: `Réservation - ${roomName}`,
+          created_by: user.id,
+        })
+        .select()
+        .single();
+
+      if (roomError) throw roomError;
+
+      await supabase.from('chat_room_participants').insert({
+        room_id: room.id,
+        user_id: user.id,
+        role: 'client',
+      });
+
+      // Ajouter l'organisateur seulement s'il existe
+      if (organizerId) {
+        await supabase.from('chat_room_participants').insert({
+          room_id: room.id,
+          user_id: organizerId,
+          role: 'organizer',
+        });
+      }
+
+      const { data: participantsData } = await supabase
+        .from('chat_room_participants')
+        .select('user_id, role')
+        .eq('room_id', room.id);
+
+      let profilesData: any[] | null = null;
+
+      if (participantsData && participantsData.length > 0) {
+        const participantIds = participantsData.map(p => p.user_id);
+        const { data } = await supabase
+          .from('profiles')
+          .select('user_id, full_name, avatar_url')
+          .in('user_id', participantIds);
+
+        profilesData = data;
+
+        const profilesMap = (data || []).reduce((acc, profile) => {
+          acc[profile.user_id] = profile;
+          return acc;
+        }, {} as Record<string, { full_name: string | null; avatar_url: string | null }>);
+
+        setParticipants(participantsData.map(p => ({
+          id: p.user_id,
+          full_name: profilesMap[p.user_id]?.full_name || null,
+          avatar_url: profilesMap[p.user_id]?.avatar_url || null,
+          role: p.role,
+        })));
+      }
+
+      // 8. Stocker les informations de l'organisateur
+      if (organizerId && profilesData) {
+        setOrganizerId(organizerId);
+        // Récupérer le nom de l'organisateur
+        const organizerProfile = profilesData.find(p => p.user_id === organizerId);
+        setOrganizerName(organizerProfile?.full_name || 'Assistant Yafoy');
+      }
+
+      // 9. Rediriger vers l'écran de pré-conversation
+      setChatRoomId(room.id);
+      setStep('preChat');
+
+      toast({
+        title: 'Réservation créée',
+        description: 'Prêt à contacter votre organisateur',
+        className: 'bg-green-600 text-white',
+      });
+    } catch (error) {
+      console.error('Erreur lors de la réservation:', error);
+      toast({
+        title: 'Erreur',
+        description: "Impossible de créer la réservation",
+        variant: 'destructive',
+      });
+    } finally {
+      setIsCreatingReservation(false);
+    }
+  };
+
   const handleCreateChatRoom = async () => {
     if (!user || !eventPlanningId || invoiceProducts.length === 0) return;
 
     setIsCreatingRoom(true);
     try {
       const productIds = invoiceProducts.map(p => p.id);
-      
+
       // Get provider IDs from selected products
       const { data: products } = await supabase
         .from('products')
@@ -620,7 +784,7 @@ const ClientEventPlanner = () => {
 
       // Add providers as participants
       const providerIds = [...new Set(products.map(p => p.provider_id))];
-      
+
       for (const providerId of providerIds) {
         await supabase.from('chat_room_participants').insert({
           room_id: room.id,
@@ -814,9 +978,9 @@ const ClientEventPlanner = () => {
 
                 {/* Action Buttons */}
                 <div className="flex flex-col sm:flex-row gap-4">
-                  <Button 
-                    variant="outline" 
-                    size="lg" 
+                  <Button
+                    variant="outline"
+                    size="lg"
                     className="flex-1 h-14"
                     onClick={handleCreateChatRoom}
                     disabled={isCreatingRoom}
@@ -828,19 +992,19 @@ const ClientEventPlanner = () => {
                     )}
                     Discuter avec les prestataires
                   </Button>
-                  
-                  <Button 
-                    size="lg" 
-                    className="flex-1 h-14 bg-green-600 hover:bg-green-700"
-                    onClick={handleConfirmOrder}
-                    disabled={isCreatingOrder}
+
+                  <Button
+                    size="lg"
+                    className="flex-1 h-14 bg-primary hover:bg-primary/90"
+                    onClick={handleReservation}
+                    disabled={isCreatingReservation}
                   >
-                    {isCreatingOrder ? (
+                    {isCreatingReservation ? (
                       <Loader2 className="h-5 w-5 animate-spin mr-2" />
                     ) : (
-                      <CreditCard className="mr-2 h-5 w-5" />
+                      <CheckCircle className="mr-2 h-5 w-5" />
                     )}
-                    Payer la commande
+                    RESERVER
                   </Button>
                 </div>
               </>
@@ -859,7 +1023,7 @@ const ClientEventPlanner = () => {
               eventLocation: eventData.eventLocation,
               servicesNeeded: eventData.servicesNeeded,
             }}
-            onSelectProducts={() => {}}
+            onSelectProducts={() => { }}
             selectedProductIds={invoiceProducts.map(p => p.id)}
           />
         )}
@@ -868,6 +1032,27 @@ const ClientEventPlanner = () => {
           <div className="h-[650px] rounded-xl overflow-hidden border">
             <ProviderTabbedChat roomId={chatRoomId} participants={participants} />
           </div>
+        )}
+
+        {/* Pre-Conversation Screen */}
+        {step === 'preChat' && eventData && (
+          <PreConversationScreen
+            organizerName={organizerName}
+            eventType={EVENT_TYPE_LABELS[eventData.eventType] || eventData.eventType}
+            eventDate={eventData.eventDate}
+            eventLocation={eventData.eventLocation}
+            onStartChat={() => {
+              console.log('Démarrage du chat. ChatRoomId:', chatRoomId, 'Participants:', participants);
+              setStep('room');
+            }}
+            onCall={() => {
+              // Ouvrir l'application téléphone ou afficher un message
+              toast({
+                title: 'Appel',
+                description: 'Fonctionnalité d\'appel en cours de développement',
+              });
+            }}
+          />
         )}
 
         {/* Global Payment Dialog */}

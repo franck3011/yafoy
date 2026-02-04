@@ -7,7 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
  * @param clientId - ID de l'utilisateur client
  * @returns ID de l'organisateur assigné
  */
-export const assignOrganizer = async (clientId: string): Promise<string> => {
+export const assignOrganizer = async (clientId: string): Promise<string | null> => {
     try {
         // IDs des deux organisateurs (à récupérer depuis la base de données)
         const { data: organizers, error: organizersError } = await supabase
@@ -15,10 +15,14 @@ export const assignOrganizer = async (clientId: string): Promise<string> => {
             .select('user_id')
             .eq('role', 'organizer');
 
-        if (organizersError) throw organizersError;
+        if (organizersError) {
+            console.warn('Erreur lors de la récupération des organisateurs:', organizersError);
+            return null;
+        }
 
         if (!organizers || organizers.length === 0) {
-            throw new Error('Aucun organisateur trouvé dans le système');
+            console.warn('Aucun organisateur trouvé dans le système');
+            return null;
         }
 
         if (organizers.length < 2) {
@@ -35,7 +39,13 @@ export const assignOrganizer = async (clientId: string): Promise<string> => {
                     .eq('organizer_id', org.user_id)
                     .eq('status', 'active');
 
-                if (error) throw error;
+                if (error) {
+                    console.warn('Erreur lors du comptage des assignations:', error);
+                    return {
+                        organizerId: org.user_id,
+                        activeClients: 0
+                    };
+                }
 
                 return {
                     organizerId: org.user_id,
@@ -72,14 +82,17 @@ export const assignOrganizer = async (clientId: string): Promise<string> => {
             .select()
             .single();
 
-        if (assignmentError) throw assignmentError;
+        if (assignmentError) {
+            console.warn('Erreur lors de la création de l\'assignation:', assignmentError);
+            return selectedOrganizer; // Retourner l'organisateur même si l'assignation échoue
+        }
 
         console.log(`Client ${clientId} assigné à l'organisateur ${selectedOrganizer}`);
         return selectedOrganizer;
 
     } catch (error) {
         console.error('Erreur lors de l\'assignation de l\'organisateur:', error);
-        throw error;
+        return null; // Retourner null au lieu de lancer une erreur
     }
 };
 
