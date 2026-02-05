@@ -78,7 +78,7 @@ export const useChatRoom = (roomId: string | null) => {
       if (messagesData && messagesData.length > 0) {
         // Get unique sender IDs
         const senderIds = [...new Set(messagesData.map(m => m.sender_id))];
-        
+
         // Fetch profiles separately
         const { data: profilesData } = await supabase
           .from('profiles')
@@ -106,7 +106,13 @@ export const useChatRoom = (roomId: string | null) => {
 
     fetchMessages();
 
-    // Subscribe to new messages
+    // Polling: Recharger les messages toutes les 3 secondes
+    const pollingInterval = setInterval(() => {
+      console.log('[POLLING] Rechargement des messages pour room:', roomId);
+      fetchMessages();
+    }, 3000); // Réduit à 3 secondes pour plus de réactivité
+
+    // Subscribe to new messages (Realtime)
     channelRef.current = supabase
       .channel(`room-${roomId}`)
       .on(
@@ -118,8 +124,9 @@ export const useChatRoom = (roomId: string | null) => {
           filter: `room_id=eq.${roomId}`,
         },
         async (payload) => {
+          console.log('[REALTIME] Nouveau message reçu:', payload.new);
           const newMessage = payload.new as any;
-          
+
           // Fetch sender profile
           const { data: profileData } = await supabase
             .from('profiles')
@@ -133,12 +140,19 @@ export const useChatRoom = (roomId: string | null) => {
             sender: profileData || { full_name: null, avatar_url: null },
           };
 
-          setMessages(prev => [...prev, messageWithSender as ChatMessage]);
+          setMessages(prev => {
+            console.log('[REALTIME] Ajout du message au state. Nb messages avant:', prev.length);
+            return [...prev, messageWithSender as ChatMessage];
+          });
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[REALTIME] Subscription status:', status);
+      });
 
     return () => {
+      console.log('[CLEANUP] Nettoyage du polling et de la subscription');
+      clearInterval(pollingInterval);
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
       }

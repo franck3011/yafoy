@@ -64,6 +64,11 @@ const clientNav: NavItem[] = [
   { title: 'Paramètres', href: '/client/settings', icon: Settings },
 ];
 
+const organizerNav: NavItem[] = [
+  { title: 'Tableau de bord', href: '/organizer/dashboard', icon: LayoutDashboard },
+  { title: 'Paramètres', href: '/client/settings', icon: Settings },
+];
+
 // Team navigations - each role has its own dedicated interface
 
 const accountantNav: NavItem[] = [
@@ -102,6 +107,7 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isProviderRoute = location.pathname.startsWith('/provider');
   const isClientRoute = location.pathname.startsWith('/client');
+  const isOrganizerRoute = location.pathname.startsWith('/organizer');
   const isTeamRoute = location.pathname.startsWith('/team');
 
   const isSuperAdminOrAdmin = isSuperAdmin() || isAdmin();
@@ -110,7 +116,7 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   const isSupervisorUser = isSupervisor();
   const isModeratorUser = isModerator();
   const isSupportUser = isSupport();
-  
+
   // Default to client navigation
   let navItems: NavItem[] = clientNav;
   let dashboardTitle = 'Client';
@@ -143,6 +149,10 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
     navItems = providerNav;
     dashboardTitle = 'Prestataire';
     DashboardIcon = Store;
+  } else if (isOrganizerRoute || userRole === 'organizer') {
+    navItems = organizerNav;
+    dashboardTitle = 'Organisateur';
+    DashboardIcon = Shield;
   } else if (isClientRoute || user) {
     navItems = clientNav;
     dashboardTitle = 'Client';
@@ -211,11 +221,78 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   );
 
   return (
-    <div className="flex min-h-screen bg-background">
-      {/* Desktop Sidebar */}
-      <aside className="hidden w-64 border-r border-border bg-card lg:block">
-        <NavContent />
-      </aside>
+    <div className="flex flex-col min-h-screen bg-background">
+      {/* Header with horizontal navigation */}
+      <header className="sticky top-0 z-50 border-b border-border bg-card">
+        <div className="flex h-16 items-center px-4 lg:px-6">
+          {/* Logo */}
+          <Link to="/" className="flex items-center gap-2 mr-6">
+            <img src={logoYafoy} alt="YAFOY" className="h-10 w-auto" />
+          </Link>
+
+          {/* Role Badge */}
+          <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5 mr-6">
+            <DashboardIcon className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium text-secondary">{dashboardTitle}</span>
+          </div>
+
+          {/* Horizontal Navigation */}
+          <nav className="hidden md:flex items-center gap-1 flex-1">
+            {navItems.map((item) => {
+              const isActive = location.pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  className={cn(
+                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-muted hover:text-secondary'
+                  )}
+                >
+                  <item.icon className="h-4 w-4" />
+                  {item.title}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="flex-1 md:hidden" />
+
+          {/* Right side actions */}
+          <div className="flex items-center gap-2">
+            <NotificationPopover />
+
+            <Link to="/">
+              <Button variant="ghost" size="sm" className="gap-2">
+                <ChevronLeft className="h-4 w-4" />
+                Retour au site
+              </Button>
+            </Link>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2 text-muted-foreground hover:text-destructive"
+              onClick={handleSignOut}
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden lg:inline">Déconnexion</span>
+            </Button>
+
+            {/* Mobile menu button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+      </header>
 
       {/* Mobile Sidebar */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -225,33 +302,7 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       </Sheet>
 
       {/* Main Content */}
-      <div className="flex flex-1 flex-col">
-        {/* Top Bar */}
-        <header className="sticky top-0 z-40 flex h-16 items-center gap-4 border-b border-border bg-card px-4 lg:px-6">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden"
-            onClick={() => setSidebarOpen(true)}
-          >
-            <Menu className="h-5 w-5" />
-          </Button>
-
-          <div className="flex-1" />
-
-          <NotificationPopover />
-
-          <Link to="/">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ChevronLeft className="h-4 w-4" />
-              Retour au site
-            </Button>
-          </Link>
-        </header>
-
-        {/* Page Content */}
-        <main className="flex-1 p-4 lg:p-6">{children}</main>
-      </div>
+      <main className="flex-1 p-4 lg:p-6 overflow-hidden">{children}</main>
     </div>
   );
 };

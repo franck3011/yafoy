@@ -39,6 +39,9 @@ import ClientEventPlanner from "./pages/client/ClientEventPlanner";
 // Team pages
 import { AccountantDashboard, SupervisorDashboard, ModeratorDashboard, SupportDashboard } from "./pages/team";
 
+// Organizer pages
+import OrganizerDashboard from "./pages/organizer/OrganizerDashboard";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -53,7 +56,7 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/comment-ca-marche" element={<HowItWorks />} />
             <Route path="/devenir-prestataire" element={<BecomeProvider />} />
-            
+
             {/* Admin Routes */}
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/team" element={<AdminTeam />} />
@@ -62,7 +65,7 @@ const App = () => (
             <Route path="/admin/products" element={<AdminProducts />} />
             <Route path="/admin/orders" element={<AdminOrders />} />
             <Route path="/admin/transactions" element={<AdminTransactions />} />
-            
+
             {/* Provider Routes */}
             <Route path="/provider" element={<ProviderDashboard />} />
             <Route path="/provider/products" element={<ProviderProducts />} />
@@ -70,7 +73,7 @@ const App = () => (
             <Route path="/provider/orders" element={<ProviderOrders />} />
             <Route path="/provider/settings" element={<ProviderSettings />} />
             <Route path="/provider/:id" element={<ProviderPublicProfile />} />
-            
+
             {/* Client Routes */}
             <Route path="/client" element={<ClientDashboard />} />
             <Route path="/client/event-planner" element={<ClientEventPlanner />} />
@@ -79,17 +82,20 @@ const App = () => (
             <Route path="/client/product/:id" element={<ProductDetail />} />
             <Route path="/client/favorites" element={<ClientFavorites />} />
             <Route path="/client/settings" element={<ClientSettings />} />
-            
+
             {/* Team Routes */}
             <Route path="/team/accountant" element={<AccountantDashboard />} />
             <Route path="/team/supervisor" element={<SupervisorDashboard />} />
             <Route path="/team/moderator" element={<ModeratorDashboard />} />
             <Route path="/team/support" element={<SupportDashboard />} />
-            
+
+            {/* Organizer Routes */}
+            <Route path="/organizer/dashboard" element={<OrganizerDashboard />} />
+
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
-          
+
           {/* Voice Assistant - Floating on all pages */}
           <VoiceAssistant />
         </BrowserRouter>

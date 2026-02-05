@@ -4,20 +4,23 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { 
-  Send, 
-  Image as ImageIcon, 
-  Paperclip, 
-  Mic, 
-  MicOff, 
-  Loader2, 
+import {
+  Send,
+  Image as ImageIcon,
+  Paperclip,
+  Mic,
+  MicOff,
+  Loader2,
   Users,
   Play,
   Pause,
-  AlertCircle
+  AlertCircle,
+  Pen
 } from 'lucide-react';
+import { ElectronicSignature } from './ElectronicSignature';
 import { useChatRoom } from '@/hooks/useChatRoom';
 import { useAuth } from '@/hooks/useAuth';
+import { useTypingIndicator } from '@/hooks/useTypingIndicator';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -33,11 +36,14 @@ export const ChatRoomView = ({ roomId, participants = [] }: ChatRoomViewProps) =
   const { user } = useAuth();
   const { toast } = useToast();
   const { room, messages, isLoading, isSending, sendMessage, uploadFile } = useChatRoom(roomId);
+  const { typingUsers, broadcastTyping, broadcastStopTyping } = useTypingIndicator(roomId);
   const [input, setInput] = useState('');
   const [inputError, setInputError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [playingVoice, setPlayingVoice] = useState<string | null>(null);
+  const [isSigningOpen, setIsSigningOpen] = useState(false);
+  const [isSigning, setIsSigning] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -47,7 +53,10 @@ export const ChatRoomView = ({ roomId, participants = [] }: ChatRoomViewProps) =
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      const scrollElement = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (scrollElement) {
+        scrollElement.scrollTop = scrollElement.scrollHeight;
+      }
     }
   }, [messages]);
 
@@ -57,14 +66,28 @@ export const ChatRoomView = ({ roomId, participants = [] }: ChatRoomViewProps) =
     if (inputError) {
       setInputError(null);
     }
+
+    // Broadcast typing indicator
+    if (value.length > 0) {
+      broadcastTyping();
+    } else {
+      broadcastStopTyping();
+    }
   };
 
   const handleSendText = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isSending) return;
+    console.log('🚀 [ChatRoomView] handleSendText appelé', { input: input.trim(), isSending });
+
+    if (!input.trim() || isSending) {
+      console.log('⚠️ [ChatRoomView] Message vide ou envoi en cours');
+      return;
+    }
 
     // Validate message
     const validation = validateChatMessage(input.trim());
+    console.log('✅ [ChatRoomView] Validation:', validation);
+
     if (!validation.isValid) {
       setInputError(validation.message || 'Message invalide');
       toast({
@@ -75,7 +98,10 @@ export const ChatRoomView = ({ roomId, participants = [] }: ChatRoomViewProps) =
       return;
     }
 
+    console.log('📤 [ChatRoomView] Envoi du message...');
     const success = await sendMessage(input.trim(), 'text');
+    console.log('📬 [ChatRoomView] Résultat envoi:', success);
+
     if (success) {
       setInput('');
       setInputError(null);
@@ -115,7 +141,7 @@ export const ChatRoomView = ({ roomId, participants = [] }: ChatRoomViewProps) =
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
-      
+
       recordingIntervalRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
@@ -148,6 +174,47 @@ export const ChatRoomView = ({ roomId, participants = [] }: ChatRoomViewProps) =
       const audio = new Audio(url);
       audio.onended = () => setPlayingVoice(null);
       audio.play();
+    }
+  };
+
+  const handleSign = async (signatureDataUrl: string) => {
+    try {
+      setIsSigning(true);
+
+      // Convert data URL to Blob
+      const res = await fetch(signatureDataUrl);
+      const blob = await res.blob();
+      const file = new File([blob], `signature-${Date.now()}.png`, { type: 'image/png' });
+
+      // Upload signature image
+      const url = await uploadFile(file);
+
+      if (url) {
+        // Send signature message
+        await sendMessage(
+          'Accord signé électroniquement',
+          'image',
+          url,
+          'Signature',
+          file.size
+        );
+
+        setIsSigningOpen(false);
+        toast({
+          title: 'Signature envoyée',
+          description: 'Votre accord a été signé avec succès',
+          className: 'bg-green-600 text-white',
+        });
+      }
+    } catch (error) {
+      console.error('Error sending signature:', error);
+      toast({
+        title: 'Erreur',
+        description: "Impossible d'envoyer la signature",
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSigning(false);
     }
   };
 
@@ -185,12 +252,12 @@ export const ChatRoomView = ({ roomId, participants = [] }: ChatRoomViewProps) =
 
       <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
         <ScrollArea className="flex-1 px-4" ref={scrollRef}>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 min-h-full flex flex-col justify-end">
             {messages.length === 0 && (
               <div className="text-center py-8">
                 <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">
-                  Démarrez la conversation avec les prestataires
+                  Démarrez la conversation
                 </p>
               </div>
             )}
@@ -216,62 +283,66 @@ export const ChatRoomView = ({ roomId, participants = [] }: ChatRoomViewProps) =
                     </Avatar>
                   )}
 
-                  <div className={cn('max-w-[70%]', isMe ? 'text-right' : 'text-left')}>
-                    {!isMe && (
-                      <p className="text-xs text-muted-foreground mb-1">{senderName}</p>
-                    )}
-                    
-                    <div
-                      className={cn(
-                        'rounded-lg px-4 py-2',
-                        isMe ? 'bg-primary text-primary-foreground' : 'bg-muted'
-                      )}
-                    >
-                      {msg.message_type === 'text' && (
-                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                      )}
+                  <div className={cn('max-w-[70%]')}>
+                    <div className={cn('flex flex-col', isMe ? 'items-end' : 'items-start')}>
+                      <span className="text-xs text-muted-foreground mb-1 block">
+                        {isMe ? 'Moi' : senderName}
+                      </span>
 
-                      {msg.message_type === 'image' && msg.file_url && (
-                        <img 
-                          src={msg.file_url} 
-                          alt="Image" 
-                          className="max-w-full rounded cursor-pointer"
-                          onClick={() => window.open(msg.file_url!, '_blank')}
-                        />
-                      )}
+                      <div
+                        className={cn(
+                          'rounded-2xl px-4 py-2 shadow-sm relative',
+                          isMe
+                            ? 'bg-orange-500 text-white rounded-tr-none'
+                            : 'bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-white rounded-tl-none'
+                        )}
+                      >
+                        {msg.message_type === 'text' && (
+                          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                        )}
 
-                      {msg.message_type === 'file' && msg.file_url && (
-                        <a 
-                          href={msg.file_url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 underline"
-                        >
-                          <Paperclip className="h-4 w-4" />
-                          {msg.file_name || 'Fichier'}
-                        </a>
-                      )}
+                        {msg.message_type === 'image' && msg.file_url && (
+                          <img
+                            src={msg.file_url}
+                            alt="Image"
+                            className="max-w-full rounded cursor-pointer"
+                            onClick={() => window.open(msg.file_url!, '_blank')}
+                          />
+                        )}
 
-                      {msg.message_type === 'voice' && msg.file_url && (
-                        <button
-                          onClick={() => playVoice(msg.file_url!)}
-                          className="flex items-center gap-2"
-                        >
-                          {playingVoice === msg.file_url ? (
-                            <Pause className="h-4 w-4" />
-                          ) : (
-                            <Play className="h-4 w-4" />
-                          )}
-                          <span className="text-sm">
-                            Note vocale {msg.voice_duration ? `(${formatTime(msg.voice_duration)})` : ''}
-                          </span>
-                        </button>
-                      )}
+                        {msg.message_type === 'file' && msg.file_url && (
+                          <a
+                            href={msg.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 underline"
+                          >
+                            <Paperclip className="h-4 w-4" />
+                            {msg.file_name || 'Fichier'}
+                          </a>
+                        )}
+
+                        {msg.message_type === 'voice' && msg.file_url && (
+                          <button
+                            onClick={() => playVoice(msg.file_url!)}
+                            className="flex items-center gap-2"
+                          >
+                            {playingVoice === msg.file_url ? (
+                              <Pause className="h-4 w-4" />
+                            ) : (
+                              <Play className="h-4 w-4" />
+                            )}
+                            <span className="text-sm">
+                              Note vocale {msg.voice_duration ? `(${formatTime(msg.voice_duration)})` : ''}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {format(new Date(msg.created_at), 'HH:mm', { locale: fr })}
+                      </p>
                     </div>
-
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {format(new Date(msg.created_at), 'HH:mm', { locale: fr })}
-                    </p>
                   </div>
 
                   {isMe && (
@@ -322,6 +393,17 @@ export const ChatRoomView = ({ roomId, participants = [] }: ChatRoomViewProps) =
 
             <Button
               type="button"
+              variant="outline"
+              size="icon"
+              className="bg-primary/5 hover:bg-primary/10 border-primary/20"
+              onClick={() => setIsSigningOpen(true)}
+              title="Signer l'accord"
+            >
+              <Pen className="h-4 w-4 text-primary" />
+            </Button>
+
+            <Button
+              type="button"
               variant={isRecording ? 'destructive' : 'outline'}
               size="icon"
               onClick={isRecording ? stopRecording : startRecording}
@@ -355,6 +437,12 @@ export const ChatRoomView = ({ roomId, participants = [] }: ChatRoomViewProps) =
           </form>
         </div>
       </CardContent>
+      <ElectronicSignature
+        isOpen={isSigningOpen}
+        onClose={() => setIsSigningOpen(false)}
+        onSign={handleSign}
+        isSigning={isSigning}
+      />
     </Card>
   );
 };

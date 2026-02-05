@@ -22,6 +22,7 @@ import {
 import { ElectronicSignature } from './ElectronicSignature';
 import { useChatRoom } from '@/hooks/useChatRoom';
 import { useAuth } from '@/hooks/useAuth';
+import { useTypingIndicator } from '@/hooks/useTypingIndicator';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -44,6 +45,7 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
   const { user } = useAuth();
   const { toast } = useToast();
   const { room, messages, isLoading, isSending, sendMessage, uploadFile } = useChatRoom(roomId);
+  const { typingUsers, broadcastTyping, broadcastStopTyping } = useTypingIndicator(roomId);
 
   // Get providers and organizers (exclude current user)
   const interlocutors = participants.filter(p => p.role === 'provider' || p.role === 'organizer');
@@ -88,6 +90,13 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
   const handleInputChange = (value: string) => {
     setInput(value);
     if (inputError) setInputError(null);
+
+    // Broadcast typing indicator
+    if (value.length > 0) {
+      broadcastTyping();
+    } else {
+      broadcastStopTyping();
+    }
   };
 
   const handleSendText = async (e: React.FormEvent) => {
@@ -343,8 +352,8 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
 
                         <div
                           className={cn(
-                            'rounded-lg px-4 py-2',
-                            isMe ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                            'rounded-2xl px-4 py-2 shadow-sm',
+                            isMe ? 'bg-orange-500 text-white rounded-tr-none' : 'bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-white rounded-tl-none'
                           )}
                         >
                           {msg.message_type === 'text' && (
@@ -402,6 +411,20 @@ export const ProviderTabbedChat = ({ roomId, participants }: ProviderTabbedChatP
                     </div>
                   );
                 })}
+
+                {/* Typing Indicator */}
+                {typingUsers.length > 0 && (
+                  <div className="flex items-center gap-2 px-4 py-2">
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {typingUsers.map(u => u.userName).join(', ')} {typingUsers.length === 1 ? 'est' : 'sont'} en train d'écrire...
+                    </span>
+                  </div>
+                )}
               </div>
             </ScrollArea>
 

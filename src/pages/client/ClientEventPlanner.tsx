@@ -723,7 +723,11 @@ const ClientEventPlanner = () => {
         // Récupérer le nom de l'organisateur
         const organizerProfile = profilesData.find(p => p.user_id === organizerId);
         setOrganizerName(organizerProfile?.full_name || 'Assistant Yafoy');
+      } else {
+        // Pas d'organisateur assigné, utiliser un nom par défaut
+        setOrganizerName('Assistance Yafoy');
       }
+
 
       // 9. Rediriger vers l'écran de pré-conversation
       setChatRoomId(room.id);
@@ -775,23 +779,53 @@ const ClientEventPlanner = () => {
 
       if (roomError) throw roomError;
 
-      // Add organizer as participant
-      await supabase.from('chat_room_participants').insert({
-        room_id: room.id,
+      console.log('✅ [CREATE_ROOM] Room created:', room.id);
+
+      // Prepare participants array for RPC function
+      const participants = [];
+
+      // 1. Add client as participant
+      console.log('➕ [CREATE_ROOM] Adding client:', user.id);
+      participants.push({
         user_id: user.id,
-        role: 'organizer',
+        role: 'client',
       });
 
-      // Add providers as participants
+      // 2. Add assigned organizer to the room
+      if (organizerId) {
+        console.log('➕ [CREATE_ROOM] Adding organizer:', organizerId);
+        participants.push({
+          user_id: organizerId,
+          role: 'organizer',
+        });
+      } else {
+        console.warn('⚠️ [CREATE_ROOM] No organizer ID available');
+      }
+
+      // 3. Add providers as participants
       const providerIds = [...new Set(products.map(p => p.provider_id))];
+      console.log('➕ [CREATE_ROOM] Adding providers:', providerIds);
 
       for (const providerId of providerIds) {
-        await supabase.from('chat_room_participants').insert({
-          room_id: room.id,
+        participants.push({
           user_id: providerId,
           role: 'provider',
         });
       }
+
+      // Call RPC function to add all participants (bypasses RLS)
+      console.log('⏳ [CREATE_ROOM] Calling RPC to insert all participants:', participants);
+      const { error: rpcError } = await supabase.rpc('add_chat_room_participants', {
+        p_room_id: room.id,
+        p_participants: participants,
+      });
+
+      if (rpcError) {
+        console.error('❌ [CREATE_ROOM] RPC Error:', rpcError);
+        throw new Error(`Failed to add participants: ${rpcError.message}`);
+      }
+
+      console.log('✅ [CREATE_ROOM] All participants added successfully via RPC');
 
       // Save selected providers
       for (const product of products) {
@@ -812,33 +846,50 @@ const ClientEventPlanner = () => {
         })
         .eq('id', eventPlanningId);
 
+      console.log('🔍 [CREATE_ROOM] Fetching participants for room:', room.id);
+
       // Fetch participants info
-      const { data: participantsData } = await supabase
+      const { data: participantsData, error: participantsError } = await supabase
         .from('chat_room_participants')
         .select('user_id, role')
         .eq('room_id', room.id);
 
+      console.log('🔍 [CREATE_ROOM] Participants data:', participantsData, 'Error:', participantsError);
+      console.log('🔍 [CREATE_ROOM] Total participants found:', participantsData?.length || 0);
+
       if (participantsData && participantsData.length > 0) {
         // Fetch profiles separately to avoid join issues
         const participantIds = participantsData.map(p => p.user_id);
-        const { data: profilesData } = await supabase
+        console.log('🔍 [CREATE_ROOM] Fetching profiles for IDs:', participantIds);
+
+        const { data: profilesData, error: profilesError } = await supabase
           .from('profiles')
           .select('user_id, full_name, avatar_url')
           .in('user_id', participantIds);
+
+        console.log('🔍 [CREATE_ROOM] Profiles data:', profilesData, 'Error:', profilesError);
 
         const profilesMap = (profilesData || []).reduce((acc, profile) => {
           acc[profile.user_id] = profile;
           return acc;
         }, {} as Record<string, { full_name: string | null; avatar_url: string | null }>);
 
-        setParticipants(participantsData.map(p => ({
+        const mappedParticipants = participantsData.map(p => ({
           id: p.user_id,
           full_name: profilesMap[p.user_id]?.full_name || null,
           avatar_url: profilesMap[p.user_id]?.avatar_url || null,
           role: p.role,
-        })));
+        }));
+
+        console.log('✅ [CREATE_ROOM] Setting participants:', mappedParticipants);
+        setParticipants(mappedParticipants);
+      } else {
+        console.warn('⚠️ [CREATE_ROOM] No participants found or error occurred!');
+        // Set empty array to avoid undefined state
+        setParticipants([]);
       }
 
+      console.log('✅ [CREATE_ROOM] Chat room created successfully. Room ID:', room.id);
       setChatRoomId(room.id);
       setStep('room');
 

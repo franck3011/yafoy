@@ -24,7 +24,7 @@ export const ElectronicSignature = ({ isOpen, onClose, onSign, isSigning }: Elec
         if (isEmpty || !sigPad.current) return;
 
         // Convert canvas to data URL (PNG)
-        const signatureData = sigPad.current.getTrimmedCanvas().toDataURL('image/png');
+        const signatureData = sigPad.current.toDataURL('image/png');
 
         // Call onSign prop
         await onSign(signatureData);
